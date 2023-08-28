@@ -1,0 +1,115 @@
+version: '2'
+
+services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: ${PROJECT_NAME}-nginx-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./nginx/nginx-proxy.conf:/etc/nginx/nginx.conf
+    networks:
+      - magento
+    environment:
+      - VIRTUAL_HOST=${PROJECT_VIRTUAL_HOST}
+    depends_on:
+      - nginx
+      - php-fpm
+
+  nginx:
+    platform: linux/arm64/v8
+    build: ./nginx
+    container_name: ${PROJECT_NAME}-nginx
+    volumes:
+      - ./magento2:/home/magento:cached
+    depends_on:
+      - mysql
+      - redis
+      - php-fpm
+    networks:
+      - magento
+    environment:
+      - VIRTUAL_HOST=${PROJECT_VIRTUAL_HOST}
+
+  php-fpm:
+    platform: linux/arm64/v8
+    build: ./php-fpm
+    container_name: ${PROJECT_NAME}-php-fpm
+    volumes:
+      - ./magento2:/home/magento:cached
+      - ./php-fpm/php.ini:/etc/php.ini
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mysql
+      - redis
+      - elasticsearch
+    networks:
+      - magento
+    environment:
+      XDEBUG_CONFIG: "client_host=host.docker.internal"
+      PHP_IDE_CONFIG: "serverName=Docker"
+
+  redis:
+    image: redis:7.2.0
+    container_name: ${PROJECT_NAME}-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - magento
+
+  mysql:
+    platform: linux/amd64
+    image: mysql:8.0.27
+    container_name: ${PROJECT_NAME}-mysql
+    volumes:
+      - ./mysql/mysqld.cnf:/etc/mysql/mysql.conf.d/mysqld.cnf
+    environment:
+      MYSQL_DATABASE: 'magento_db'
+      MYSQL_ROOT_PASSWORD: 'root_pass'
+      MYSQL_USER: 'magento_user'
+      MYSQL_PASSWORD: 'PASSWD#'
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'false'
+    ports:
+      - "3308:3306"
+    networks:
+      - magento
+
+  phpmyadmin:
+    image: arm64v8/phpmyadmin
+    container_name: ${PROJECT_NAME}-phpmyadmin
+    environment:
+      - PMA_HOST=mysql
+      - PMA_USER=root
+      - PMA_PASSWORD=root_pass
+      - VIRTUAL_HOST=pma.${PROJECT_VIRTUAL_HOST}
+      - VIRTUAL_PORT=80
+    ports:
+      - "8080:80"
+    networks:
+      - magento
+    depends_on:
+      - mysql
+
+  elasticsearch:
+    image: elasticsearch:7.16.3
+    container_name: ${PROJECT_NAME}-elasticsearch
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    restart: always
+    networks:
+      - magento
+    environment:
+      - "discovery.type=single-node"
+      ## Set custom heap size to avoid memory errors
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - VIRTUAL_HOST=elastic.${PROJECT_VIRTUAL_HOST}
+      - VIRTUAL_PORT=9200
+    expose:
+      - 9200
+
+networks:
+  magento:
+    driver: bridge
