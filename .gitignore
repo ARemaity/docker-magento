@@ -7,3 +7,5 @@ magento2
 # Ignore Magento files
 .docker-sync
 ./magento
+magento
+.env
